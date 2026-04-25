@@ -1,30 +1,32 @@
-from transformers import AutoModel, AutoProcessor, pipeline
-from PIL import Image
+from transformers import AutoProcessor, AutoModelForImageTextToText
 import torch
-import os
-from accelerate import Accelerator
 
-device = Accelerator().device
-
-# path to flyer_1
-# a loop is needed if perform OCR on multiple pages of the flyer
-base_dir = os.path.dirname(__file__)
-img_path = os.path.join(base_dir, "flyerImages", "flyer_1.png")
-image = Image.open(img_path).convert("RGB")
-
-MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
-PROMPT = "Extract text from the image"
-# device = Accelerator().device
-# not needed because of device_map="auto" in model loading, which automatically handles device placement
-
-# Load model and processor with trust_remote_code
-# Handles non-text inputs OR multi-modal inputs
-# AutoTokenizer is for text-based
-
-pipe = pipeline("image-to-text", model=MODEL_NAME, trust_remote_code=True)
-
-result = pipe(image=image, text="Describe the image", max_new_tokens=50)
-
-print(result)
-
-text = result[0]["generated_text"]
+MODEL_PATH = "zai-org/GLM-OCR"
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "image", "url": "flyer_1.png"},
+            {"type": "text", "text": "Transform the above image into json text value"},
+        ],
+    }
+]
+processor = AutoProcessor.from_pretrained(MODEL_PATH)
+model = AutoModelForImageTextToText.from_pretrained(
+    pretrained_model_name_or_path=MODEL_PATH,
+    torch_dtype="auto",
+    device_map="auto",
+)
+inputs = processor.apply_chat_template(
+    messages,
+    tokenize=True,
+    add_generation_prompt=True,
+    return_dict=True,
+    return_tensors="pt",
+).to(model.device)
+inputs.pop("token_type_ids", None)
+generated_ids = model.generate(**inputs, max_new_tokens=8192)
+output_text = processor.decode(
+    generated_ids[0][inputs["input_ids"].shape[1] :], skip_special_tokens=False
+)
+print(output_text)
