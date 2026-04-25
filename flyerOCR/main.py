@@ -1,65 +1,39 @@
-from pathlib import Path
-import json
-import platform
-
+from transformers import AutoModel, AutoProcessor
+from PIL import Image
 import torch
+import os
+from accelerate import Accelerator
 
+# path to flyer_1
+# a loop is needed if perform OCR on multiple pages of the flyer
+base_dir = os.path.dirname(__file__)
+img_path = os.path.join(base_dir, "flyerImages", "flyer_1.png")
 
-BASE_DIR = Path(__file__).resolve().parent
-IMAGE_FILE = BASE_DIR / "flyerImages" / "flyer_1.png"
-OUTPUT_DIR = BASE_DIR / "flyerOutput"
-RESULTS_FILE = OUTPUT_DIR / "nemotron_ocr_results.json"
-TEXT_FILE = OUTPUT_DIR / "nemotron_ocr_text.txt"
+MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
+PROMPT = "Extract text from the image"
+# device = Accelerator().device
+# not needed because of device_map="auto" in model loading, which automatically handles device placement
 
+# Load model and processor with trust_remote_code
+# Handles non-text inputs OR multi-modal inputs
+# AutoTokenizer is for text-based
+processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
+model = AutoModel.from_pretrained(
+    MODEL_NAME,
+    trust_remote_code=True,
+    torch_dtype="auto",
+    device_map="auto",
+)
 
-def ensure_supported_environment() -> None:
-    if platform.system() != "Linux":
-        raise RuntimeError(
-            "Nemotron OCR v2 officially supports Linux with an NVIDIA GPU. "
-            f"Current platform: {platform.system()}."
-        )
+# Load and process image
+image = Image.open(img_path).convert("RGB")
 
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "Nemotron OCR v2 needs a CUDA-enabled PyTorch install. "
-            "Your environment does not have CUDA available."
-        )
+inputs = processor(images=image, text=PROMPT, return_tensors="pt")
+inputs = {k: v.to(model.device) for k, v in inputs.items()}
+# Generate output
+with torch.no_grad():
+    outputs = model.generate(**inputs, max_new_tokens=1024)
 
+text = processor.decode(outputs[0], skip_special_tokens=True)
 
-def load_pipeline():
-    try:
-        from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
-    except ImportError as exc:
-        raise RuntimeError(
-            "Nemotron OCR v2 is not installed. Clone `nvidia/nemotron-ocr-v2` and install "
-            "it with `pip install --no-build-isolation -v .` inside a Linux Python 3.12 + CUDA environment."
-        ) from exc
-
-    return NemotronOCRV2(lang="multi")
-
-
-def save_outputs(predictions: list[dict]) -> None:
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    RESULTS_FILE.write_text(json.dumps(predictions, indent=2), encoding="utf-8")
-
-    extracted_text = "\n".join(pred.get("text", "") for pred in predictions if pred.get("text"))
-    TEXT_FILE.write_text(extracted_text, encoding="utf-8")
-
-
-def main() -> None:
-    ensure_supported_environment()
-
-    if not IMAGE_FILE.exists():
-        raise FileNotFoundError(f"Image not found: {IMAGE_FILE}")
-
-    ocr = load_pipeline()
-    predictions = ocr(str(IMAGE_FILE), merge_level="paragraph")
-    save_outputs(predictions)
-
-    print(f"Saved structured OCR results to: {RESULTS_FILE}")
-    print(f"Saved extracted text to: {TEXT_FILE}")
-    print(json.dumps(predictions, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+print(text)
