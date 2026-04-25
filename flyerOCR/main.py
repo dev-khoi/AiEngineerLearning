@@ -1,13 +1,16 @@
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, pipeline
 from PIL import Image
 import torch
 import os
 from accelerate import Accelerator
 
+device = Accelerator().device
+
 # path to flyer_1
 # a loop is needed if perform OCR on multiple pages of the flyer
 base_dir = os.path.dirname(__file__)
 img_path = os.path.join(base_dir, "flyerImages", "flyer_1.png")
+image = Image.open(img_path).convert("RGB")
 
 MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
 PROMPT = "Extract text from the image"
@@ -17,23 +20,11 @@ PROMPT = "Extract text from the image"
 # Load model and processor with trust_remote_code
 # Handles non-text inputs OR multi-modal inputs
 # AutoTokenizer is for text-based
-processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
-model = AutoModel.from_pretrained(
-    MODEL_NAME,
-    trust_remote_code=True,
-    torch_dtype="auto",
-    device_map="auto",
-)
 
-# Load and process image
-image = Image.open(img_path).convert("RGB")
+pipe = pipeline("image-to-text", model=MODEL_NAME, trust_remote_code=True)
 
-inputs = processor(images=image, text=PROMPT, return_tensors="pt")
-inputs = {k: v.to(model.device) for k, v in inputs.items()}
-# Generate output
-with torch.no_grad():
-    outputs = model.generate(**inputs, max_new_tokens=1024)
+result = pipe(image=image, text="Describe the image", max_new_tokens=50)
 
-text = processor.decode(outputs[0], skip_special_tokens=True)
+print(result)
 
-print(text)
+text = result[0]["generated_text"]
