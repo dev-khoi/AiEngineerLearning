@@ -1,0 +1,14 @@
+sample output:
+
+[
+  {
+    "name": "Fresh Pork Tenderloin",
+    "price": "2.98 / lb",
+    "bbx": [
+      978.0,
+      978.0,
+      978.0,
+      978.0
+    ]
+  }
+]

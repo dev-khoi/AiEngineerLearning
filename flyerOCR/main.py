@@ -1,32 +1,52 @@
-from transformers import AutoProcessor, AutoModelForImageTextToText
-import torch
+from __future__ import annotations
 
-MODEL_PATH = "zai-org/GLM-OCR"
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {"type": "image", "url": "flyer_1.png"},
-            {"type": "text", "text": "Transform the above image into json text value"},
-        ],
-    }
-]
-processor = AutoProcessor.from_pretrained(MODEL_PATH)
-model = AutoModelForImageTextToText.from_pretrained(
-    pretrained_model_name_or_path=MODEL_PATH,
-    torch_dtype="auto",
-    device_map="auto",
-)
-inputs = processor.apply_chat_template(
-    messages,
-    tokenize=True,
-    add_generation_prompt=True,
-    return_dict=True,
-    return_tensors="pt",
-).to(model.device)
-inputs.pop("token_type_ids", None)
-generated_ids = model.generate(**inputs, max_new_tokens=8192)
-output_text = processor.decode(
-    generated_ids[0][inputs["input_ids"].shape[1] :], skip_special_tokens=False
-)
-print(output_text)
+import json
+from pathlib import Path
+from typing import Any
+
+from PdfToImage import convert_pdf_to_images
+from PictureToData import convert_picture_to_data
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_PDF_PATH = BASE_DIR / "flyer.pdf"
+DEFAULT_IMAGE_DIR = BASE_DIR / "flyerImages"
+DEFAULT_OUTPUT_PATH = BASE_DIR / "items.json"
+
+
+def convert_flyer_pdf_to_items(
+    pdf_path: str | Path = DEFAULT_PDF_PATH,
+    image_dir: str | Path = DEFAULT_IMAGE_DIR,
+    output_path: str | Path = DEFAULT_OUTPUT_PATH,
+) -> list[dict[str, Any]]:
+    generated_images = convert_pdf_to_images(pdf_path, image_dir)
+    all_items: list[dict[str, Any]] = []
+
+    for page_number, image_path in enumerate(generated_images, start=1):
+        page_items = convert_picture_to_data(image_path)
+        if not page_items:
+            continue
+
+        for item in page_items:
+            item["page"] = page_number
+            item["image"] = str(image_path)
+
+        all_items.extend(page_items)
+    print(json.dumps(all_items, indent=2))
+    if all_items:
+        Path(output_path).write_text(json.dumps(all_items, indent=2), encoding="utf-8")
+
+    return all_items
+
+
+def main() -> None:
+    items = convert_flyer_pdf_to_items()
+    if not items:
+        print("No grocery items found.")
+        return
+
+    print(json.dumps(items, indent=2))
+
+
+if __name__ == "__main__":
+    main()
